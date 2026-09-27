@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { BookOpen, Target, Flame, Trophy, ChevronRight, LogOut, Clock, CheckCircle, XCircle, ArrowLeft, User, Zap } from 'lucide-react';
+import { BookOpen, Target, Flame, Trophy, ChevronRight, LogOut, Clock, CheckCircle, XCircle, ArrowLeft, Zap } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 // --- TYPES ---
 type View = 'profile_setup' | 'dashboard' | 'chapters' | 'quiz' | 'results';
-type Profile = { class: string; target_exam: string; streak_count: number };
+type Profile = { class: string; target_exam: string; streak_count: number; full_name: string };
 type Chapter = { id: string; subject: string; title: string };
 type Question = { id: string; question_type: string; question_text: string; options: any[]; correct_answer: string; explanation: string; difficulty: string };
 
@@ -14,6 +14,10 @@ function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   
+  // Real Database Chapters State
+  const [dbChapters, setDbChapters] = useState<any[]>([]);
+  const [isLoadingChapters, setIsLoadingChapters] = useState(false);
+
   // Quiz States
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -30,7 +34,7 @@ function App() {
 
   const timerRef = useRef<any>(null);
 
-  // --- INITIAL LOAD ---
+  // --- INITIAL LOAD & AUTH ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -46,6 +50,25 @@ function App() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // --- FETCH REAL CHAPTERS FROM DATABASE ---
+  useEffect(() => {
+    if (view === 'chapters' && profile) {
+      const fetchChapters = async () => {
+        setIsLoadingChapters(true);
+        const { data, error } = await supabase
+          .from('chapters')
+          .select('*')
+          .eq('class', profile.class)
+          .eq('is_active', true)
+          .order('subject', { ascending: true });
+        
+        if (data) setDbChapters(data);
+        setIsLoadingChapters(false);
+      };
+      fetchChapters();
+    }
+  }, [view, profile]);
 
   const fetchProfile = async (userId: string) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -69,28 +92,28 @@ function App() {
       streak_count: 0,
       last_active_date: new Date().toISOString().split('T')[0]
     });
-    setProfile({ class: newClass, target_exam: newTarget, streak_count: 0 });
+    setProfile({ full_name: newName, class: newClass, target_exam: newTarget, streak_count: 0 });
     setView('dashboard');
   };
 
   const handleLogout = async () => { await supabase.auth.signOut(); };
 
-  // --- CHAPTERS & QUIZ LOGIC ---
-  const openChapters = () => { setView('chapters'); };
-
+  // --- QUIZ LOGIC ---
   const startQuiz = async (chapter: Chapter) => {
     setSelectedChapter(chapter);
     const { data } = await supabase.from('questions').select('*').eq('chapter_id', chapter.id);
+    
     if (data && data.length > 0) {
       setQuestions(data);
       setUserAnswers(new Array(data.length).fill(''));
       setMarkedForReview(new Array(data.length).fill(false));
       setCurrentQIndex(0);
-      setTimeLeft(data.length * 60); // 1 min per question
+      setTimeLeft(data.length * 60); 
       setView('quiz');
       startTimer(data.length * 60);
     } else {
-      alert('No questions added for this chapter yet! Go to Supabase and add some.');
+      alert('No questions added for this chapter yet! We are working on it.');
+      setView('chapters');
     }
   };
 
@@ -110,7 +133,6 @@ function App() {
     questions.forEach((q, i) => { if (userAnswers[i] === q.correct_answer) correct++; });
     setScore(correct);
     
-    // Save to DB
     if (session) {
       await supabase.from('test_attempts').insert({
         user_id: session.user.id,
@@ -138,7 +160,7 @@ function App() {
     );
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-blue-600 font-bold">Loading PrepZee...</div>;
 
   // --- RENDER PROFILE SETUP ---
   if (view === 'profile_setup') {
@@ -172,32 +194,49 @@ function App() {
   }
 
   // --- RENDER DASHBOARD ---
-  // --- RENDER CHAPTERS LIST ---
+  if (view === 'dashboard') {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
+        <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
+          <h1 className="text-2xl font-bold text-blue-600">PrepZee</h1>
+          <button onClick={handleLogout} className="text-slate-500 hover:text-red-500"><LogOut size={20} /></button>
+        </header>
+        <main className="p-4 max-w-4xl mx-auto space-y-6">
+          <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-6 rounded-2xl shadow-lg">
+            <p className="text-blue-100 text-sm">Welcome back,</p>
+            <h2 className="text-2xl font-bold mb-4">{profile?.full_name} (Class {profile?.class})</h2>
+            <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm p-3 rounded-xl w-fit">
+              <Flame className="text-orange-400" size={20} />
+              <span className="font-semibold">{profile?.streak_count || 0} Day Study Streak 🔥</span>
+            </div>
+          </div>
+
+          <button onClick={() => setView('chapters')} className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between hover:border-blue-300 transition-colors">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-blue-50 rounded-lg"><BookOpen className="text-blue-600" size={24} /></div>
+              <div className="text-left">
+                <h4 className="font-bold text-lg">Start Practicing</h4>
+                <p className="text-sm text-slate-500">Chapter-wise MCQs & Numericals</p>
+              </div>
+            </div>
+            <ChevronRight className="text-slate-400" size={24} />
+          </button>
+
+          {profile?.class === '11' && (
+            <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-2xl text-center">
+              <Zap className="text-yellow-500 mx-auto mb-2" size={32} />
+              <h3 className="font-bold text-yellow-800 text-lg">Class 11 Resources Coming Soon!</h3>
+              <p className="text-yellow-700 text-sm mt-1">We are currently building the Class 11 JEE/PSEB content.</p>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  // --- RENDER REAL CHAPTERS LIST ---
   if (view === 'chapters') {
-    const [dbChapters, setDbChapters] = useState<any[]>([]);
-    const [isLoadingChapters, setIsLoadingChapters] = useState(true);
-
-    useEffect(() => {
-      const fetchChapters = async () => {
-        setIsLoadingChapters(true);
-        // Fetch chapters matching the user's class (11 or 12)
-        const { data, error } = await supabase
-          .from('chapters')
-          .select('*')
-          .eq('class', profile?.class || '12')
-          .eq('is_active', true)
-          .order('subject', { ascending: true })
-          .order('title', { ascending: true });
-        
-        if (data) setDbChapters(data);
-        setIsLoadingChapters(false);
-      };
-      fetchChapters();
-    }, [profile]);
-
     const isClass11 = profile?.class === '11';
-    
-    // Group chapters by subject for the UI
     const physics = dbChapters.filter(c => c.subject === 'Physics');
     const chemistry = dbChapters.filter(c => c.subject === 'Chemistry');
     const math = dbChapters.filter(c => c.subject === 'Mathematics');
@@ -213,7 +252,7 @@ function App() {
             <div className="bg-white p-12 rounded-2xl shadow-sm border border-slate-100 text-center">
               <BookOpen className="text-slate-300 mx-auto mb-4" size={64} />
               <h3 className="text-2xl font-bold text-slate-800 mb-2">Class 11 Content</h3>
-              <p className="text-slate-500">Coming Soon! We are working hard to bring you the best Class 11 resources.</p>
+              <p className="text-slate-500">Coming Soon!</p>
             </div>
           ) : isLoadingChapters ? (
             <div className="text-center py-10 text-slate-500">Loading chapters...</div>
@@ -221,7 +260,7 @@ function App() {
             <>
               {physics.length > 0 && (
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-lg mb-3 px-2">Physics</h3>
+                  <h3 className="font-bold text-lg mb-3 px-2 text-blue-700">Physics</h3>
                   <div className="space-y-2">
                     {physics.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
                   </div>
@@ -229,7 +268,7 @@ function App() {
               )}
               {chemistry.length > 0 && (
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-lg mb-3 px-2">Chemistry</h3>
+                  <h3 className="font-bold text-lg mb-3 px-2 text-green-700">Chemistry</h3>
                   <div className="space-y-2">
                     {chemistry.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
                   </div>
@@ -237,7 +276,7 @@ function App() {
               )}
               {math.length > 0 && (
                 <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                  <h3 className="font-bold text-lg mb-3 px-2">Mathematics</h3>
+                  <h3 className="font-bold text-lg mb-3 px-2 text-purple-700">Mathematics</h3>
                   <div className="space-y-2">
                     {math.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
                   </div>
@@ -297,7 +336,7 @@ function App() {
 
   // --- RENDER RESULTS ---
   if (view === 'results') {
-    const percentage = Math.round((score / questions.length) * 100);
+    const percentage = questions.length > 0 ? Math.round((score / questions.length) * 100) : 0;
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 p-4 flex flex-col items-center justify-center">
         <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md text-center border border-slate-100">
@@ -310,7 +349,7 @@ function App() {
             <p className="text-slate-600 mt-2">{score} / {questions.length} Correct</p>
           </div>
 
-          <div className="space-y-3 text-left mb-6">
+          <div className="space-y-3 text-left mb-6 max-h-96 overflow-y-auto">
             {questions.map((q, i) => (
               <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex items-start gap-2">
