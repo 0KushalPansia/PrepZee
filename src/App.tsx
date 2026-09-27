@@ -60,7 +60,6 @@ function App() {
           .from('chapters')
           .select('*')
           .eq('class', profile.class)
-          .eq('is_active', true)
           .order('subject', { ascending: true });
         
         if (data) setDbChapters(data);
