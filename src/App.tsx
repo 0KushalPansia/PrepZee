@@ -172,56 +172,41 @@ function App() {
   }
 
   // --- RENDER DASHBOARD ---
-  if (view === 'dashboard') {
-    return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
-        <header className="bg-white shadow-sm p-4 flex justify-between items-center sticky top-0 z-10">
-          <h1 className="text-2xl font-bold text-blue-600">PrepZee</h1>
-          <button onClick={handleLogout} className="text-slate-500 hover:text-red-500"><LogOut size={20} /></button>
-        </header>
-        <main className="p-4 max-w-4xl mx-auto space-y-6">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-6 rounded-2xl shadow-lg">
-            <p className="text-blue-100 text-sm">Welcome back,</p>
-            <h2 className="text-2xl font-bold mb-4">{profile?.class ? `Class ${profile.class}` : 'Student'} ({profile?.target_exam})</h2>
-            <div className="flex items-center gap-2 bg-white/20 backdrop-blur-sm p-3 rounded-xl w-fit">
-              <Flame className="text-orange-400" size={20} />
-              <span className="font-semibold">{profile?.streak_count || 0} Day Study Streak 🔥</span>
-            </div>
-          </div>
-
-          <button onClick={openChapters} className="w-full bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center justify-between hover:border-blue-300 transition-colors">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-blue-50 rounded-lg"><BookOpen className="text-blue-600" size={24} /></div>
-              <div className="text-left">
-                <h4 className="font-bold text-lg">Start Practicing</h4>
-                <p className="text-sm text-slate-500">Chapter-wise MCQs & Numericals</p>
-              </div>
-            </div>
-            <ChevronRight className="text-slate-400" size={24} />
-          </button>
-
-          {profile?.class === '11' && (
-            <div className="bg-yellow-50 border border-yellow-200 p-6 rounded-2xl text-center">
-              <Zap className="text-yellow-500 mx-auto mb-2" size={32} />
-              <h3 className="font-bold text-yellow-800 text-lg">Class 11 Resources Coming Soon!</h3>
-              <p className="text-yellow-700 text-sm mt-1">We are currently building the Class 11 JEE/PSEB content. Check back soon!</p>
-            </div>
-          )}
-        </main>
-      </div>
-    );
-  }
-
   // --- RENDER CHAPTERS LIST ---
   if (view === 'chapters') {
-    // In a real app, fetch this from DB based on profile.class. For now, we show Class 12.
+    const [dbChapters, setDbChapters] = useState<any[]>([]);
+    const [isLoadingChapters, setIsLoadingChapters] = useState(true);
+
+    useEffect(() => {
+      const fetchChapters = async () => {
+        setIsLoadingChapters(true);
+        // Fetch chapters matching the user's class (11 or 12)
+        const { data, error } = await supabase
+          .from('chapters')
+          .select('*')
+          .eq('class', profile?.class || '12')
+          .eq('is_active', true)
+          .order('subject', { ascending: true })
+          .order('title', { ascending: true });
+        
+        if (data) setDbChapters(data);
+        setIsLoadingChapters(false);
+      };
+      fetchChapters();
+    }, [profile]);
+
     const isClass11 = profile?.class === '11';
     
+    // Group chapters by subject for the UI
+    const physics = dbChapters.filter(c => c.subject === 'Physics');
+    const chemistry = dbChapters.filter(c => c.subject === 'Chemistry');
+    const math = dbChapters.filter(c => c.subject === 'Mathematics');
+
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
         <header className="bg-white shadow-sm p-4 flex items-center gap-4 sticky top-0 z-10">
           <button onClick={() => setView('dashboard')}><ArrowLeft size={24} /></button>
-          <h2 className="text-xl font-bold">Select Chapter</h2>
+          <h2 className="text-xl font-bold">Class {profile?.class} Chapters</h2>
         </header>
         <main className="p-4 max-w-4xl mx-auto space-y-4">
           {isClass11 ? (
@@ -230,19 +215,35 @@ function App() {
               <h3 className="text-2xl font-bold text-slate-800 mb-2">Class 11 Content</h3>
               <p className="text-slate-500">Coming Soon! We are working hard to bring you the best Class 11 resources.</p>
             </div>
+          ) : isLoadingChapters ? (
+            <div className="text-center py-10 text-slate-500">Loading chapters...</div>
           ) : (
-            ['Physics', 'Chemistry', 'Mathematics'].map(subject => (
-              <div key={subject} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-                <h3 className="font-bold text-lg mb-3 px-2">{subject}</h3>
-                <div className="space-y-2">
-                  {/* Hardcoded list for demo, ideally fetch from DB */}
-                  {subject === 'Physics' && <ChapterBtn title="Electrostatics" onClick={() => startQuiz({id: '1', subject, title: 'Electrostatics'})} />}
-                  {subject === 'Physics' && <ChapterBtn title="Current Electricity" onClick={() => startQuiz({id: '2', subject, title: 'Current Electricity'})} />}
-                  {subject === 'Chemistry' && <ChapterBtn title="Solutions" onClick={() => startQuiz({id: '3', subject, title: 'Solutions'})} />}
-                  {subject === 'Mathematics' && <ChapterBtn title="Relations and Functions" onClick={() => startQuiz({id: '4', subject, title: 'Relations and Functions'})} />}
+            <>
+              {physics.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-lg mb-3 px-2">Physics</h3>
+                  <div className="space-y-2">
+                    {physics.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
+                  </div>
                 </div>
-              </div>
-            ))
+              )}
+              {chemistry.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-lg mb-3 px-2">Chemistry</h3>
+                  <div className="space-y-2">
+                    {chemistry.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
+                  </div>
+                </div>
+              )}
+              {math.length > 0 && (
+                <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="font-bold text-lg mb-3 px-2">Mathematics</h3>
+                  <div className="space-y-2">
+                    {math.map(ch => <ChapterBtn key={ch.id} title={ch.title} onClick={() => startQuiz(ch)} />)}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </main>
       </div>
